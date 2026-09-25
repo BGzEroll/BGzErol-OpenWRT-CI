@@ -1,0 +1,236 @@
+name: immortalwrt-25_12-x86_64-lxc
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt.git
+  REPO_BRANCH: openwrt-25.12
+
+  CONFIG_FILE: config/immortalwrt-25_12-x86_64-lxc.config
+  DIY_P1_SH: script/Load_lxc_feeds.sh
+  DIY_P2_SH: script/Load_lxc_configuration.sh
+
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout CI repository
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+          sudo docker image prune --all --force || true
+
+          df -hT
+
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y --no-install-recommends \
+            ack antlr3 asciidoc autoconf automake autopoint \
+            binutils bison build-essential bzip2 \
+            ccache clang cmake cpio curl \
+            device-tree-compiler ecj fastjar flex \
+            gawk gettext gcc-multilib g++-multilib git \
+            gperf haveged help2man intltool \
+            libc6-dev-i386 libelf-dev libglib2.0-dev \
+            libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev \
+            libncurses-dev libpython3-dev libreadline-dev \
+            libssl-dev libtool libyaml-dev \
+            lld llvm lrzsz mkisofs msmtp ninja-build \
+            p7zip p7zip-full patch pkgconf \
+            python3 python3-pip python3-ply \
+            python3-docutils python3-pyelftools \
+            qemu-utils re2c rsync scons squashfs-tools \
+            subversion swig texinfo uglifyjs \
+            unzip vim wget xmlto xxd \
+            zlib1g-dev zstd
+
+          sudo apt-get clean
+          sudo timedatectl set-timezone "$TZ"
+
+      - name: Prepare work directory
+        run: |
+          sudo mkdir -p /workdir
+          sudo chown "$USER":"$(id -gn)" /workdir
+
+      - name: Clone ImmortalWrt
+        working-directory: /workdir
+        run: |
+          git clone \
+            --depth 1 \
+            --single-branch \
+            --branch "$REPO_BRANCH" \
+            "$REPO_URL" \
+            openwrt
+
+          ln -s /workdir/openwrt "$GITHUB_WORKSPACE/openwrt"
+
+          echo "ImmortalWrt commit:"
+          git -C openwrt rev-parse HEAD
+
+      - name: Add Nikki feed
+        run: |
+          chmod +x "$DIY_P1_SH"
+
+          cd openwrt
+
+          "$GITHUB_WORKSPACE/$DIY_P1_SH"
+
+          echo "===== feeds.conf.default ====="
+          cat feeds.conf.default
+
+      - name: Update feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+
+      - name: Install feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds install -a
+
+      - name: Load LXC configuration
+        run: |
+          cp "$CONFIG_FILE" openwrt/.config
+
+          chmod +x "$DIY_P2_SH"
+
+          cd openwrt
+
+          "$GITHUB_WORKSPACE/$DIY_P2_SH"
+
+          make defconfig
+
+      - name: Verify LXC configuration
+        run: |
+          cd openwrt
+
+          echo "===== Target ====="
+          grep -E \
+            '^CONFIG_TARGET_x86=y$|^CONFIG_TARGET_x86_64=y$|^CONFIG_TARGET_x86_64_DEVICE_generic=y$' \
+            .config
+
+          echo "===== RootFS ====="
+          grep -E \
+            'CONFIG_TARGET_ROOTFS_(TARGZ|CPIOGZ|EXT4FS|SQUASHFS|EROFS)|CONFIG_TARGET_IMAGES_GZIP' \
+            .config
+
+          echo "===== Nikki ====="
+          grep -E \
+            '^CONFIG_PACKAGE_(nikki|luci-app-nikki|luci-i18n-nikki-zh-cn|mihomo-meta)=y$' \
+            .config
+
+          if ! grep -q '^CONFIG_TARGET_ROOTFS_TARGZ=y$' .config; then
+            echo "ERROR: CONFIG_TARGET_ROOTFS_TARGZ is not enabled"
+            exit 1
+          fi
+
+          if grep -q '^CONFIG_PACKAGE_mihomo-alpha=y$' .config; then
+            echo "ERROR: mihomo-alpha must not be selected"
+            exit 1
+          fi
+
+      - name: Download sources
+        run: |
+          cd openwrt
+
+          make download -j8
+
+          find dl \
+            -type f \
+            -size -1024c \
+            -print \
+            -delete
+
+      - name: Compile ImmortalWrt
+        run: |
+          cd openwrt
+
+          echo "Building with $(nproc) threads"
+
+          make -j"$(nproc)" || make -j1 V=s
+
+      - name: Prepare PVE LXC artifact
+        run: |
+          set -euo pipefail
+
+          TARGET_DIR="$GITHUB_WORKSPACE/openwrt/bin/targets/x86/64"
+          OUTPUT_DIR="$GITHUB_WORKSPACE/output"
+
+          mkdir -p "$OUTPUT_DIR"
+
+          echo "===== x86/64 output ====="
+          find "$TARGET_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            | sort
+
+          ROOTFS="$(
+            find "$TARGET_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name '*rootfs.tar.gz' \
+              | head -n 1
+          )"
+
+          if [ -z "$ROOTFS" ]; then
+            echo "ERROR: no rootfs.tar.gz generated"
+            exit 1
+          fi
+
+          cp "$ROOTFS" "$OUTPUT_DIR/"
+
+          cp \
+            "$GITHUB_WORKSPACE/openwrt/.config" \
+            "$OUTPUT_DIR/build.config"
+
+          for f in \
+            version.buildinfo \
+            feeds.buildinfo \
+            config.buildinfo
+          do
+            if [ -f "$TARGET_DIR/$f" ]; then
+              cp "$TARGET_DIR/$f" "$OUTPUT_DIR/"
+            fi
+          done
+
+          git -C "$GITHUB_WORKSPACE/openwrt" rev-parse HEAD \
+            > "$OUTPUT_DIR/immortalwrt-source-commit.txt"
+
+          cd "$OUTPUT_DIR"
+
+          sha256sum "$(basename "$ROOTFS")" \
+            > SHA256SUMS
+
+          echo "===== Final artifact ====="
+          ls -lh
+
+      - name: Upload PVE LXC rootfs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt-25.12-x86_64-LXC
+          path: output/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Show disk usage
+        if: always()
+        run: |
+          df -hT
