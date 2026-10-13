@@ -1,0 +1,148 @@
+name: 公共固件构建流程
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: targets 下的构建目标目录名
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TZ: Asia/Shanghai
+  TARGET_ID: ${{ inputs.target }}
+
+jobs:
+  build:
+    name: 编译与上传
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: 获取 CI 仓库
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 检查目标配置
+        run: |
+          source scripts/load-target.sh
+          for key in REPO_URL REPO_BRANCH TARGET_OUTPUT OUTPUT_KIND; do
+            printf '%s=%s\n' "$key" "${!key}" >> "$GITHUB_ENV"
+          done
+          mkdir -p logs
+          echo "构建目标：$TARGET_ID"
+          echo "源码：$REPO_URL，分支：$REPO_BRANCH"
+
+      - name: 准备构建环境
+        run: bash scripts/prepare-env.sh
+
+      - name: 获取固件源码
+        run: |
+          git clone --depth 1 --single-branch --branch "$REPO_BRANCH" "$REPO_URL" /workdir/openwrt
+          ln -s /workdir/openwrt "$GITHUB_WORKSPACE/openwrt"
+          git -C openwrt rev-parse HEAD | tee logs/source-commit.txt
+
+      - name: 加载 feeds 配置
+        run: bash scripts/configure-target.sh before-feeds
+
+      - name: 更新 feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a 2>&1 | tee "$GITHUB_WORKSPACE/logs/feeds-update.log"
+
+      - name: 应用 feeds 更新后的定制
+        run: bash scripts/configure-target.sh after-feeds
+
+      - name: 安装 feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds install -a 2>&1 | tee "$GITHUB_WORKSPACE/logs/feeds-install.log"
+
+      - name: 加载固件配置与定制文件
+        run: bash scripts/configure-target.sh config
+
+      - name: 展开并检查构建配置
+        run: |
+          cd openwrt
+          make defconfig 2>&1 | tee "$GITHUB_WORKSPACE/logs/defconfig.log"
+          # 部分 Kconfig 错误不会传递到 make 的退出码，必须检查日志。
+          if grep -Ei '(^|[[:space:]:])error:|recursive dependency detected' "$GITHUB_WORKSPACE/logs/defconfig.log"; then
+            echo '错误：配置展开过程中出现 Kconfig 错误'
+            exit 1
+          fi
+          cd "$GITHUB_WORKSPACE"
+          bash scripts/configure-target.sh verify
+
+      - name: 下载软件包源码
+        run: |
+          cd openwrt
+          make download -j8 2>&1 | tee "$GITHUB_WORKSPACE/logs/download.log" || \
+            make download -j1 V=s 2>&1 | tee "$GITHUB_WORKSPACE/logs/download-retry.log"
+
+      - name: 编译固件
+        run: |
+          cd openwrt
+          echo "使用 $(nproc) 个线程编译"
+          make -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/logs/compile.log" || \
+            make -j1 V=s 2>&1 | tee "$GITHUB_WORKSPACE/logs/compile-retry.log"
+
+      - name: 整理构建产物
+        run: bash scripts/collect-artifacts.sh
+
+      - name: 上传固件附件
+        id: artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ inputs.target }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: output/
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: 保存失败时的构建配置
+        if: failure()
+        run: |
+          if [[ -f openwrt/.config ]]; then
+            cp openwrt/.config logs/build.config
+          fi
+          if [[ -d openwrt/logs ]]; then
+            cp -a openwrt/logs logs/openwrt
+          fi
+
+      - name: 上传失败日志
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ inputs.target }}-logs-${{ github.run_number }}-${{ github.run_attempt }}
+          path: logs/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: 显示构建摘要
+        if: always()
+        env:
+          BUILD_STATUS: ${{ job.status }}
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        run: |
+          {
+            echo "### 构建结果"
+            echo ""
+            echo "- 目标：$TARGET_ID"
+            echo "- 状态：$BUILD_STATUS"
+            echo "- 源码：${REPO_URL:-未读取}"
+            echo "- 分支：${REPO_BRANCH:-未读取}"
+            if [[ -f logs/source-commit.txt ]]; then
+              echo "- 源码提交：$(cat logs/source-commit.txt)"
+            fi
+            if [[ -n "$ARTIFACT_URL" ]]; then
+              echo "- [下载构建附件]($ARTIFACT_URL)，保留 30 天"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          df -hT

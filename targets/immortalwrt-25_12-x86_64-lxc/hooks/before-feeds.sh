@@ -1,8 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# PVE/LXC 专用构建只额外加入 Nikki。
-# 不复用现有的 PassWall feed 配置。
+# LXC 仅添加 Nikki，其他 feeds 使用 ImmortalWrt 源码自带配置。
 if ! grep -q '^src-git nikki ' feeds.conf.default; then
     echo 'src-git nikki https://github.com/nikkinikki-org/OpenWrt-nikki.git;main' >> feeds.conf.default
 fi

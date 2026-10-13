@@ -1,44 +1,139 @@
-# Actions-OpenWrt
+# BGzErol OpenWrt CI
 
-[![LICENSE](https://img.shields.io/github/license/mashape/apistatus.svg?style=flat-square&label=LICENSE)](https://github.com/P3TERX/Actions-OpenWrt/blob/master/LICENSE)
-![GitHub Stars](https://img.shields.io/github/stars/P3TERX/Actions-OpenWrt.svg?style=flat-square&label=Stars&logo=github)
-![GitHub Forks](https://img.shields.io/github/forks/P3TERX/Actions-OpenWrt.svg?style=flat-square&label=Forks&logo=github)
+使用 GitHub Actions 构建个人定制的 OpenWrt / ImmortalWrt 固件。
 
-Build OpenWrt using GitHub Actions
+保留三个独立构建入口，共用一套构建流程。仅通过 Actions 附件下载，不启用 SSH 调试、Release、网盘上传或构建缓存。
 
-[Read the details in my blog (in Chinese) | 中文教程](https://p3terx.com/archives/build-openwrt-with-github-actions.html)
+## 构建目标
 
-## Usage
+| Actions 入口 | 源码仓库 | 源码分支 | 目标目录 | 主要产物 |
+| --- | --- | --- | --- | --- |
+| 构建 · ImmortalWrt 23.05 · x86_64 | [BGzEroll/immortalwrt](https://github.com/BGzEroll/immortalwrt) | `openwrt-23.05` | `immortalwrt-23_05-x86_64` | x86 固件镜像 |
+| 构建 · ImmortalWrt 23.05 · 360 T7 | [BGzEroll/immortalwrt](https://github.com/BGzEroll/immortalwrt) | `openwrt-23.05` | `immortalwrt-23_05-360t7` | 360 T7 ubootmod 固件 |
+| 构建 · ImmortalWrt 25.12 · x86_64 LXC | [immortalwrt/immortalwrt](https://github.com/immortalwrt/immortalwrt) | `openwrt-25.12` | `immortalwrt-25_12-x86_64-lxc` | PVE LXC `rootfs.tar.gz` |
 
-- Click the [Use this template](https://github.com/P3TERX/Actions-OpenWrt/generate) button to create a new repository.
-- Generate `.config` files using [Lean's OpenWrt](https://github.com/coolsnowwolf/lede) source code. ( You can change it through environment variables in the workflow file. )
-- Push `.config` file to the GitHub repository.
-- Select `Build OpenWrt` on the Actions page.
-- Click the `Run workflow` button.
-- When the build is complete, click the `Artifacts` button in the upper right corner of the Actions page to download the binaries.
+各目标每次获取对应分支的最新提交，具体提交及 feeds 版本记录在附件中。
 
-## Tips
+## 手动构建与下载
 
-- It may take a long time to create a `.config` file and build the OpenWrt firmware. Thus, before create repository to build your own firmware, you may check out if others have already built it which meet your needs by simply [search `Actions-Openwrt` in GitHub](https://github.com/search?q=Actions-openwrt).
-- Add some meta info of your built firmware (such as firmware architecture and installed packages) to your repository introduction, this will save others' time.
+1. 打开仓库的 **Actions** 页面。
+2. 在左侧选择对应目标的中文构建入口。
+3. 点击 **Run workflow**，选择本 CI 仓库的分支并运行。
+4. 构建成功后，在运行页面底部的 **Artifacts** 下载附件，或点击构建摘要中的下载链接。
 
-## Acknowledgments
+附件名称为 `<目标目录>-<运行序号>-<重跑次数>`，保留 **30 天**。下载需要登录 GitHub。LXC 附件里的 `rootfs.tar.gz` 是模板文件，外层 Actions ZIP 只是下载包装。
 
-- [Microsoft Azure](https://azure.microsoft.com)
-- [GitHub Actions](https://github.com/features/actions)
-- [OpenWrt](https://github.com/openwrt/openwrt)
-- [Lean's OpenWrt](https://github.com/coolsnowwolf/lede)
-- [tmate](https://github.com/tmate-io/tmate)
-- [mxschmitt/action-tmate](https://github.com/mxschmitt/action-tmate)
-- [csexton/debugger-action](https://github.com/csexton/debugger-action)
-- [Cowtransfer](https://cowtransfer.com)
-- [WeTransfer](https://wetransfer.com/)
-- [Mikubill/transfer](https://github.com/Mikubill/transfer)
-- [softprops/action-gh-release](https://github.com/softprops/action-gh-release)
-- [ActionsRML/delete-workflow-runs](https://github.com/ActionsRML/delete-workflow-runs)
-- [dev-drprasad/delete-older-releases](https://github.com/dev-drprasad/delete-older-releases)
-- [peter-evans/repository-dispatch](https://github.com/peter-evans/repository-dispatch)
+所有目标使用 `ubuntu-24.04`。每次浅克隆源码并重新下载、编译；没有 `actions/cache`，也禁用 OpenWrt 的 ccache。
 
-## License
+同一目标、同一 CI 分支限制为一个运行中的构建，不自动取消正在运行的编译；不同目标可以并行。实际并发数受 GitHub 账号额度限制。
 
-[MIT](https://github.com/P3TERX/Actions-OpenWrt/blob/main/LICENSE) © P3TERX
+## 附件内容
+
+普通固件附件保留目标输出目录中的文件，不包含 `packages/` 软件包目录；LXC 附件只保留 rootfs 和构建信息。
+
+每份成功附件同时包含：
+
+- `build.config`：`make defconfig` 展开后的完整配置。
+- `feeds.conf`：本次使用的 feeds 地址与分支。
+- `source-commit.txt`：固件源码提交。
+- `build-info.txt`：构建目标、时间、CI 提交、源码和各 Git feed 提交。
+- 源码生成的 `version.buildinfo`、`feeds.buildinfo`、`config.buildinfo`（如有）。
+- `SHA256SUMS`：附件内文件的 SHA256 校验值。
+
+解压后可以运行 `sha256sum -c SHA256SUMS` 检查完整性。编译失败时另外上传 `<目标目录>-logs-<运行序号>-<重跑次数>`，包含已有的阶段日志和构建配置。
+
+## 目录说明
+
+```text
+.github/workflows/
+  build-common.yml                       # 公共流程，不提供手动入口
+  <原有目标工作流>.yml                    # 三个独立中文入口
+
+targets/
+  <目标目录>/
+    target.conf                          # 源码、分支、产物路径和共用定制开关
+    config                               # 此目标的固件配置
+    feeds.conf                           # 此目标的 feeds 配置（按需）
+    files/                               # 此目标的固件覆盖文件（按需）
+    hooks/                               # 此目标的阶段定制（按需）
+
+common/
+  feeds/immortalwrt-23.05.conf             # x86 与 360 T7 共用的 feeds
+  files/etc/netdata/netdata.conf          # 原有固件覆盖文件
+  hooks/
+    passwall-feeds.sh                     # 原有 PassWall feeds
+    default-ip.sh                        # 默认 LAN 地址 192.168.114.1
+    replace-upnp.sh                       # 可选 UPnP 包替换，默认未启用
+
+scripts/
+  load-target.sh                         # 读取目标参数
+  prepare-env.sh                         # 准备 Ubuntu 构建环境
+  configure-target.sh                    # 应用定制与检查配置
+  collect-artifacts.sh                   # 整理产物和生成校验文件
+```
+
+## 修改目标配置
+
+修改 `targets/<目标目录>/config` 调整软件包和镜像选项，修改 `target.conf` 调整源码地址、分支和定制开关。
+
+`target.conf` 中的参数：
+
+| 参数 | 用途 |
+| --- | --- |
+| `REPO_URL` / `REPO_BRANCH` | 固件源码仓库与分支 |
+| `FEEDS_FILE` | 本 CI 仓库内的 feeds 配置路径；不设置时使用源码自带配置 |
+| `TARGET_OUTPUT` | `openwrt/bin/targets/` 下的输出路径 |
+| `OUTPUT_KIND` | 普通固件使用 `firmware`，LXC 使用 `lxc` |
+| `USE_PASSWALL` | 是否添加现有 PassWall feeds，默认 `false` |
+| `USE_DEFAULT_IP` | 是否使用原有默认 LAN 地址，默认 `false` |
+| `USE_COMMON_FILES` | 是否复制 `common/files/`，默认 `false` |
+
+两个普通固件目标继续使用 PassWall feeds、默认 LAN 地址和共用文件；LXC 只额外加入 Nikki。配置文件迁移时保留原有包选择。
+
+目标的 `files/` 在共用文件之后复制，因此可以覆盖共用文件。
+
+### 目标定制脚本
+
+脚本在对应目标的 `hooks/` 目录中按需创建，用 Bash 执行，工作目录始终是 OpenWrt 源码根目录：
+
+| 脚本 | 执行时机 |
+| --- | --- |
+| `before-feeds.sh` | 共用 feeds 定制完成后、更新 feeds 前 |
+| `after-feeds.sh` | 更新 feeds 后、安装 feeds 前 |
+| `config.sh` | 复制 `.config` 和定制文件后、`make defconfig` 前 |
+| `verify.sh` | `make defconfig` 和公共目标检查后 |
+
+LXC 专用脚本添加 Nikki、避免 mihomo-alpha/meta 循环依赖，并检查 rootfs 和 Nikki 关键选项。
+
+UPnP 替换脚本保留为可选定制，默认没有目标调用。需要启用时，在对应目标的 `hooks/after-feeds.sh` 中调用：
+
+```bash
+#!/bin/bash
+set -euo pipefail
+bash "$GITHUB_WORKSPACE/common/hooks/replace-upnp.sh"
+```
+
+随后按该 UPnP 仓库的要求调整目标配置中的包选择。
+
+## 外部触发
+
+两个普通固件目标保留 `repository_dispatch`，收窄为独立事件类型，避免一次事件同时启动两套构建：
+
+| 目标 | `event_type` |
+| --- | --- |
+| ImmortalWrt 23.05 x86_64 | `build-immortalwrt-23_05-x86_64` |
+| 360 T7 | `build-immortalwrt-23_05-360t7` |
+
+已有外部调用方需要改用表中的事件名；LXC 沿用手动触发。
+
+## 验证
+
+修改工作流后使用 `actionlint`，修改脚本后使用 `bash -n` 和 `shellcheck` 检查。脚本语法和本地配置检查不能替代 GitHub Actions 的完整固件编译，构建成功也不能替代设备刷机或 PVE LXC 启动验证。
+
+本次整理的检查范围及结果见 [本地验证记录](docs/validation.md)。
+
+## 致谢与许可证
+
+本项目基于 [P3TERX/Actions-OpenWrt](https://github.com/P3TERX/Actions-OpenWrt)，感谢 OpenWrt、ImmortalWrt 和相关软件包维护者。
+
+使用 [MIT 许可证](LICENSE)，保留原作者版权声明。

@@ -1,4 +1,0 @@
-src-git packages https://github.com/BGzEroll/packages.git;openwrt-23.05
-src-git luci https://github.com/BGzEroll/luci.git;openwrt-23.05
-src-git routing https://github.com/BGzEroll/openwrt-routing.git;openwrt-23.05
-src-git telephony https://github.com/BGzEroll/openwrt-telephony.git;openwrt-23.05
