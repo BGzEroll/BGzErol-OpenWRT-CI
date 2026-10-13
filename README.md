@@ -51,10 +51,8 @@
 
 targets/
   <目标目录>/
-    target.conf                          # 源码、分支、产物路径和共用定制开关
+    target.conf                          # 源码、分支和产物路径
     config                               # 此目标的固件配置
-    feeds.conf                           # 此目标的 feeds 配置（按需）
-    files/                               # 此目标的固件覆盖文件（按需）
     hooks/                               # 此目标的阶段定制（按需）
 
 common/
@@ -74,23 +72,20 @@ scripts/
 
 ## 修改目标配置
 
-修改 `targets/<目标目录>/config` 调整软件包和镜像选项，修改 `target.conf` 调整源码地址、分支和定制开关。
+修改 `targets/<目标目录>/config` 调整软件包和镜像选项，修改 `target.conf` 调整源码地址、分支和产物路径。
 
 `target.conf` 中的参数：
 
 | 参数 | 用途 |
 | --- | --- |
 | `REPO_URL` / `REPO_BRANCH` | 固件源码仓库与分支 |
-| `FEEDS_FILE` | 本 CI 仓库内的 feeds 配置路径；不设置时使用源码自带配置 |
+| `FEEDS_FILE` | 本 CI 仓库内的 feeds 配置路径；空字符串表示使用源码自带配置 |
 | `TARGET_OUTPUT` | `openwrt/bin/targets/` 下的输出路径 |
 | `OUTPUT_KIND` | 普通固件使用 `firmware`，LXC 使用 `lxc` |
-| `USE_PASSWALL` | 是否添加现有 PassWall feeds，默认 `false` |
-| `USE_DEFAULT_IP` | 是否使用原有默认 LAN 地址，默认 `false` |
-| `USE_COMMON_FILES` | 是否复制 `common/files/`，默认 `false` |
 
-两个普通固件目标继续使用 PassWall feeds、默认 LAN 地址和共用文件；LXC 只额外加入 Nikki。配置文件迁移时保留原有包选择。
+所有目标直接添加 PassWall feeds、设置默认 LAN 地址 192.168.114.1 并复制 common/files，无需开关。LXC 另外添加 Nikki；实际编译哪些软件包仍由 config 决定。
 
-目标的 `files/` 在共用文件之后复制，因此可以覆盖共用文件。
+三个目标明确配置以上参数，脚本直接读取，不额外校验名称或补充默认值。
 
 ### 目标定制脚本
 
@@ -99,21 +94,23 @@ scripts/
 | 脚本 | 执行时机 |
 | --- | --- |
 | `before-feeds.sh` | 共用 feeds 定制完成后、更新 feeds 前 |
-| `after-feeds.sh` | 更新 feeds 后、安装 feeds 前 |
 | `config.sh` | 复制 `.config` 和定制文件后、`make defconfig` 前 |
-| `verify.sh` | `make defconfig` 和公共目标检查后 |
+| `verify.sh` | LXC 的 `make defconfig` 后，仅检查 Nikki 和 mihomo-meta |
 
-LXC 专用脚本添加 Nikki、避免 mihomo-alpha/meta 循环依赖，并检查 rootfs 和 Nikki 关键选项。
+LXC 专用脚本添加 Nikki、避免 mihomo-alpha/meta 循环依赖，并检查 Nikki 和 mihomo-meta。rootfs 由配置定制启用，整理产物时直接复制，缺文件则构建失败。
 
-UPnP 替换脚本保留为可选定制，默认没有目标调用。需要启用时，在对应目标的 `hooks/after-feeds.sh` 中调用：
+UPnP 替换脚本独立保留，默认没有目标调用。需要启用时，在公共工作流的“更新 feeds”与“安装 feeds”之间增加调用步骤，并限定需要使用的目标：
 
-```bash
-#!/bin/bash
-set -euo pipefail
-bash "$GITHUB_WORKSPACE/common/hooks/replace-upnp.sh"
+```yaml
+- name: 替换 UPnP 软件包
+  if: env.TARGET_ID == 'immortalwrt-23_05-360t7'
+  working-directory: openwrt
+  run: bash "$GITHUB_WORKSPACE/common/hooks/replace-upnp.sh"
 ```
 
 随后按该 UPnP 仓库的要求调整目标配置中的包选择。
+
+CI 脚本使用 `GITHUB_WORKSPACE` 和 `GITHUB_SHA`，按 Actions 的固定环境运行。feeds 定制每次全新构建执行一次，不提供重复追加检测。
 
 ## 外部触发
 

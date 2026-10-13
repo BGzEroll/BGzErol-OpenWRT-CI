@@ -30,12 +30,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: 检查目标配置
+      - name: 读取目标配置
         run: |
           source scripts/load-target.sh
-          for key in REPO_URL REPO_BRANCH TARGET_OUTPUT OUTPUT_KIND; do
-            printf '%s=%s\n' "$key" "${!key}" >> "$GITHUB_ENV"
-          done
+          printf 'REPO_URL=%s\nREPO_BRANCH=%s\nOUTPUT_KIND=%s\n' \
+            "$REPO_URL" "$REPO_BRANCH" "$OUTPUT_KIND" >> "$GITHUB_ENV"
           mkdir -p logs
           echo "构建目标：$TARGET_ID"
           echo "源码：$REPO_URL，分支：$REPO_BRANCH"
@@ -57,9 +56,6 @@ jobs:
           cd openwrt
           ./scripts/feeds update -a 2>&1 | tee "$GITHUB_WORKSPACE/logs/feeds-update.log"
 
-      - name: 应用 feeds 更新后的定制
-        run: bash scripts/configure-target.sh after-feeds
-
       - name: 安装 feeds
         run: |
           cd openwrt
@@ -74,11 +70,11 @@ jobs:
           make defconfig 2>&1 | tee "$GITHUB_WORKSPACE/logs/defconfig.log"
           # 部分 Kconfig 错误不会传递到 make 的退出码，必须检查日志。
           if grep -Ei '(^|[[:space:]:])error:|recursive dependency detected' "$GITHUB_WORKSPACE/logs/defconfig.log"; then
-            echo '错误：配置展开过程中出现 Kconfig 错误'
             exit 1
           fi
-          cd "$GITHUB_WORKSPACE"
-          bash scripts/configure-target.sh verify
+          if [[ "$OUTPUT_KIND" == lxc ]]; then
+            bash "$GITHUB_WORKSPACE/targets/$TARGET_ID/hooks/verify.sh"
+          fi
 
       - name: 下载软件包源码
         run: |
