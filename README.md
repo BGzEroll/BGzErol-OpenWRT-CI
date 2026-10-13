@@ -61,7 +61,6 @@ common/
   hooks/
     passwall-feeds.sh                     # 原有 PassWall feeds
     default-ip.sh                        # 默认 LAN 地址 192.168.114.1
-    replace-upnp.sh                       # 可选 UPnP 包替换，默认未启用
 
 scripts/
   load-target.sh                         # 读取目标参数
@@ -99,16 +98,19 @@ scripts/
 
 LXC 专用脚本添加 Nikki、避免 mihomo-alpha/meta 循环依赖，并检查 Nikki 和 mihomo-meta。rootfs 由配置定制启用，整理产物时直接复制，缺文件则构建失败。
 
-UPnP 替换脚本独立保留，默认没有目标调用。需要启用时，在公共工作流的“更新 feeds”与“安装 feeds”之间增加调用步骤，并限定需要使用的目标：
+### UPnP feed
 
-```yaml
-- name: 替换 UPnP 软件包
-  if: env.TARGET_ID == 'immortalwrt-23_05-360t7'
-  working-directory: openwrt
-  run: bash "$GITHUB_WORKSPACE/common/hooks/replace-upnp.sh"
+23.05 x86 和 360 T7 使用自维护的 [UPnP feed](https://github.com/BGzEroll/miniupnp)。仓库根目录包含 miniupnpd/ 和 luci-app-upnp/ 两个标准包目录。
+
+common/feeds/immortalwrt-23.05.conf 的第一行是：
+
+```text
+src-git --force custom_upnp https://github.com/BGzEroll/miniupnp.git;master
 ```
 
-随后按该 UPnP 仓库的要求调整目标配置中的包选择。
+自维护 feed 排在其他 feeds 前，优先提供同名包，--force 允许覆盖源码树中的同名核心包。现有 feeds update -a 和 feeds install -a 完成接入，CI 不调用 UPnP 仓库的安装脚本。
+
+两个目标的 config 已选择 miniupnpd-nftables、luci-app-upnp 和 IPv6，禁用 iptables 变体及独立中文包；中文词典随自维护的 LuCI 包提供。LXC 25.12 继续使用源码自带 UPnP 包来源，不加入这个 23.05 定制 feed。
 
 CI 脚本使用 `GITHUB_WORKSPACE` 和 `GITHUB_SHA`，按 Actions 的固定环境运行。feeds 定制每次全新构建执行一次，不提供重复追加检测。
 

@@ -1,6 +1,11 @@
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
 CONFIG_TARGET_mediatek_filogic_DEVICE_qihoo_360t7-ubootmod=y
+CONFIG_IPV6=y
+CONFIG_PACKAGE_miniupnpd-nftables=y
+CONFIG_PACKAGE_luci-app-upnp=y
+# CONFIG_PACKAGE_miniupnpd-iptables is not set
+# CONFIG_PACKAGE_luci-i18n-upnp-zh-cn is not set
 # CONFIG_DRIVER_11AC_SUPPORT is not set
 # CONFIG_DRIVER_11AX_SUPPORT is not set
 # CONFIG_KERNEL_PAGE_POOL is not set

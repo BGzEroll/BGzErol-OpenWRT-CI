@@ -71,3 +71,9 @@ LXC 同时检查 rootfs.tar.gz、Nikki、LuCI 和 mihomo-meta 的必需选项，
 - actionlint、ShellCheck、bash -n 和 git diff --check 通过。
 
 原始日志位于本地 logs/validation/，本轮临时源码与工具已清理。未进行完整固件编译或推送。
+
+## UPnP 标准 feed 接入
+
+UPnP 包目录移到仓库根目录，23.05 共用 feeds 首行加入 src-git --force custom_upnp；x86 和 360 T7 配置启用自维护的 nftables 与 LuCI 包。旧替换脚本及安装器移除。
+
+本地 src-link 验证确认安装链接指向新目录，两个目标的 make defconfig 通过。额外执行了 23.05.4 x86 SDK 包编译并通过，未进行完整固件编译或上机测试。按用户要求，本轮编译产物及临时 SDK 全部清理；后续此类整理默认只做语法和引用检查，实际编译需明确要求。

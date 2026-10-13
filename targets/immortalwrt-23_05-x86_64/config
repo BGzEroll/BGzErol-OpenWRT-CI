@@ -1,6 +1,11 @@
 CONFIG_TARGET_x86=y
 CONFIG_TARGET_x86_64=y
 CONFIG_TARGET_x86_64_DEVICE_generic=y
+CONFIG_IPV6=y
+CONFIG_PACKAGE_miniupnpd-nftables=y
+CONFIG_PACKAGE_luci-app-upnp=y
+# CONFIG_PACKAGE_miniupnpd-iptables is not set
+# CONFIG_PACKAGE_luci-i18n-upnp-zh-cn is not set
 CONFIG_LIBCURL_COOKIES=y
 CONFIG_LIBCURL_CRYPTO_AUTH=y
 CONFIG_LIBCURL_FILE=y
